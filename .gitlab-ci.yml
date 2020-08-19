@@ -1,0 +1,61 @@
+image: docker:19.03.8
+
+variables:
+  # registry
+  NPM_REGISTRY: "https://esisoj70.emea.nsn-net.net/artifactory/api/npm/npmjs-remote/"
+  PYPI_REGISTRY: "https://esisoj70.emea.nsn-net.net/artifactory/api/pypi/python-remote/simple"
+
+  # docker registry
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_TLS_CERTDIR: ""
+
+services:
+  - docker:19.03.8-dind
+
+stages:
+  - lint
+  - unit test
+  - mutation test
+  - build
+
+.retry_config:
+  retry:
+    max: 2
+    when:
+      - unknown_failure
+      - api_failure
+      - runner_system_failure
+      - stuck_or_timeout_failure
+
+.service_config:
+  extends: .retry_config
+  image: node:13.10.1-alpine3.10
+  before_script:
+    - npm install
+
+service lint:
+  extends: .service_config
+  stage: lint
+  script:
+    - npm run lint
+
+service unit test:
+  extends: .service_config
+  stage: unit test
+  coverage: '/All files\s*\|\s*\d+\.*\d*\s*/'
+  script:
+    - CI_LAST_COVERAGE=$(node ./fetchLastJobCoverage.js) CI=true npm test
+
+service mutation test:
+  extends: .service_config
+  stage: mutation test
+  script:
+    - apk add git
+    - git init
+    - npm run mut-test
+
+service build and push:
+  stage: build
+  when: manual
+  script:
+    - CONTAINER_NAME=service ./build_and_push.sh
